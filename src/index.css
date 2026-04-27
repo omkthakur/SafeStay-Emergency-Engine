@@ -1,0 +1,58 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+
+:root {
+  --bg-base: #0a0a0a;
+  --bg-surface: #1a1a1a;
+  --bg-elevated: #2a2a2a;
+  
+  --primary-red: #FF3B30;
+  --primary-red-dim: #aa1a15;
+  --safe-green: #34C759;
+  --safe-green-dim: #1e7d36;
+  --warning-yellow: #FFCC00;
+  
+  --text-main: #f5f5f5;
+  --text-muted: #a0a0a0;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background-color: var(--bg-base);
+  color: var(--text-main);
+  min-height: 100vh;
+}
+
+button {
+  border: none;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+/* Utilities */
+.flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.flex-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.w-full { width: 100%; }
+.h-full { height: 100%; }
+.h-screen { height: 100vh; }
+
+@keyframes scan {
+  from { top: 0; }
+  to { top: 100%; }
+}
+

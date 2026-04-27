@@ -1,0 +1,210 @@
+.entryContainer {
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+}
+
+.header {
+  margin-top: 10vh;
+  margin-bottom: 8vh;
+  text-align: center;
+}
+
+.header h1 {
+  font-size: 24px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.header p {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.buttonGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  flex: 1;
+}
+
+.btn {
+  flex: 1;
+  border-radius: 16px;
+  font-size: 24px;
+  font-weight: 800;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  max-height: 40vh;
+}
+
+.btnSos {
+  background-color: var(--primary-red);
+  color: #fff;
+  box-shadow: 0 8px 32px rgba(255, 59, 48, 0.3);
+}
+
+.btnSos:active {
+  background-color: var(--primary-red-dim);
+  transform: scale(0.98);
+}
+
+.btnMap {
+  background-color: var(--bg-elevated);
+  border: 2px solid var(--safe-green);
+  color: var(--text-main);
+}
+
+.btnMap:active {
+  background-color: var(--safe-green-dim);
+  transform: scale(0.98);
+}
+
+/* Evacuation Map Styles */
+.navContainer {
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  background-color: #000;
+}
+
+.instructionBanner {
+  background-color: var(--bg-surface);
+  padding: 24px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--bg-elevated);
+  z-index: 10;
+}
+
+.instructionText {
+  display: flex;
+  flex-direction: column;
+}
+
+.instructionText h2 {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--safe-green);
+  margin: 0;
+}
+
+.instructionText p {
+  opacity: 0.7;
+  font-size: 14px;
+}
+
+.mapArea {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.mapOverlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: all;
+  cursor: grab;
+}
+
+/* Map specific elements */
+.corridor {
+  fill: none;
+  stroke: var(--bg-elevated);
+  stroke-width: 40;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.safePath {
+  fill: none;
+  stroke: var(--safe-green);
+  stroke-width: 50;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 60, 30;
+  filter: drop-shadow(0 0 25px var(--safe-green));
+  animation: move-path 1.5s linear infinite;
+  opacity: 1;
+}
+
+@keyframes move-path {
+  from { stroke-dashoffset: 120; }
+  to { stroke-dashoffset: 0; }
+}
+
+.userDot {
+  fill: var(--text-main);
+}
+
+.userAura {
+  fill: var(--safe-green);
+  opacity: 0.3;
+  animation: pulse 2s ease-out infinite;
+}
+
+.dangerZone {
+  fill: var(--primary-red);
+  opacity: 0.2;
+  stroke: var(--primary-red);
+  stroke-width: 4;
+  animation: hazard-pulse 2s ease-in-out infinite;
+}
+
+@keyframes hazard-pulse {
+  0% { transform: scale(0.9); opacity: 0.1; }
+  50% { transform: scale(1.1); opacity: 0.4; }
+  100% { transform: scale(0.9); opacity: 0.1; }
+}
+
+@keyframes dash {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+
+@keyframes pulse {
+  0% { transform: scale(0.5); opacity: 0.6; }
+  100% { transform: scale(2.5); opacity: 0; }
+}
+
+@keyframes pulse-danger {
+  0% { opacity: 0.2; }
+  50% { opacity: 0.5; }
+  100% { opacity: 0.2; }
+}
+
+.bottomBar {
+  position: absolute;
+  bottom: 0;
+  width: 100%;
+  padding: 24px;
+  background: linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 100%);
+  display: flex;
+  justify-content: center;
+}
+
+.speakBtn {
+  background: var(--bg-elevated);
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
