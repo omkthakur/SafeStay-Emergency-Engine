@@ -31,29 +31,18 @@ app.post('/api/scan-blueprint', async (req, res) => {
 
         const { image, prompt } = req.body;
         const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
         
-        let result;
-        if (image) {
-            // Blueprint Upload Mode (Image + Prompt)
-            result = await model.generateContent([
-                prompt,
-                { inlineData: { data: image, mimeType: "image/png" } }
-            ]);
-        } else {
-            // Safety Audit Mode (Prompt Only)
-            result = await model.generateContent(prompt);
-        }
+        const result = await model.generateContent([
+            prompt,
+            { inlineData: { data: image, mimeType: "image/png" } }
+        ]);
 
         const response = await result.response;
         res.json({ text: response.text() });
     } catch (error) {
         console.error('AI Proxy Error:', error);
-        // Temporarily send the actual error message to the frontend for debugging
-        res.status(500).json({ 
-            error: 'AI Processing Failed', 
-            details: error instanceof Error ? error.message : String(error) 
-        });
+        res.status(500).json({ error: 'AI Processing Failed' });
     }
 });
 
