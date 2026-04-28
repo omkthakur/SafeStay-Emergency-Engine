@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import buildingData from '../data/building_data.json';
+import { db } from '../services/firebase';
+import { doc, onSnapshot, setDoc, getDoc, collection } from 'firebase/firestore';
 
 export type EngineState = 'IDLE' | 'THREAT_DETECTED' | 'ANALYZING' | 'EVACUATING' | 'ADAPTING' | 'DEVIATED';
 
@@ -12,6 +13,7 @@ export interface MapNode {
   y: number;
   type: NodeType;
   label?: string;
+  description?: string;
   isHazard?: boolean;
 }
 
@@ -48,9 +50,12 @@ export interface Guest {
 }
 
 export interface EmergencyLog {
+  id: string;
   timestamp: string;
   nodeId: string;
   event: string;
+  status: 'ACTIVE' | 'RESOLVED';
+  description?: string;
 }
 
 export interface MapConfig {
@@ -86,16 +91,19 @@ export interface EmergencyContextType {
   sosLogs: EmergencyLog[];
   otherActiveAlerts: number;
   activeGuests: Array<{ id: string; nodeId: string; floor: string; lastActive: number }>;
+  pendingIncident: any;
+  confirmIncident: (id: string, confirmed: boolean) => void;
   
-  updateMap: (nodes: MapNode[], links: MapLink[], walls: MapWall[], zones: MapZone[]) => void;
+  updateMap: (updater: (prevConfig: MapConfig) => MapConfig) => void;
   updateGuests: (guests: Guest[]) => void;
-  triggerSOS: (atNodeId?: string) => void;
+  triggerSOS: (type: 'MEDICAL' | 'THREAT', subtype?: string) => void;
   triggerHazardAtNode: (nodeId: string) => void;
   resetSystem: () => void;
+  wipeLogs: () => void;
+  resolveIncident: (logId: string) => void;
   triggerDeviation: (newNodeId: string) => void;
   setInitialNode: (nodeId: string) => void;
   analyzeExits: () => { bottlenecks: string[]; suggestions: string[] };
-  simulateVisionImport: () => void;
   switchFloor: (id: string) => void;
   addFloor: (name: string) => void;
   floors: FloorData[];
@@ -104,6 +112,10 @@ export interface EmergencyContextType {
   syncStatus: 'IDLE' | 'SYNCING' | 'SUCCESS' | 'ERROR';
   pushToCloud: () => Promise<void>;
   pullFromCloud: (targetId: string) => Promise<boolean>;
+  undoMap: () => void;
+  canUndo: boolean;
+  forceRestoreFromDisk: () => Promise<void>;
+  saveToDisk: (aiMapData?: any) => void;
 }
 
 const EmergencyContext = createContext<EmergencyContextType | null>(null);
@@ -115,6 +127,7 @@ export const EmergencyProvider: React.FC<{children: React.ReactNode}> = ({ child
     activeFloorId: string;
     guestDB: Guest[];
     sosLogs: EmergencyLog[];
+    pendingIncident: any;
   }>(() => {
     const saved = localStorage.getItem('SAFESTAY_PERSISTENT_DATA');
     let baseState;
@@ -133,33 +146,154 @@ export const EmergencyProvider: React.FC<{children: React.ReactNode}> = ({ child
             id: 'f1',
             name: 'Ground Floor',
             config: {
-              nodes: (buildingData.mapConfig.nodes as MapNode[]).map(n => ({ ...n, isHazard: false })),
-              links: buildingData.mapConfig.links as MapLink[],
+              nodes: [],
+              links: [],
               walls: [],
               zones: []
             }
           }
         ],
         activeFloorId: 'f1',
-        guestDB: buildingData.guests.map((g: any, i: number) => ({ ...g, id: `g${i}`, count: g.count || 1 })),
-        sosLogs: []
+        guestDB: [],
+        sosLogs: [],
+        pendingIncident: null
       };
-    }
-
-    // PERSISTENCE RESTORE: Attempt to recover the last live engine state from the cloud record
-    const cloudRecord = localStorage.getItem(`CLOUD_SYNC_GLOBAL_SYNC`);
-    if (cloudRecord) {
-      try {
-        const payload = JSON.parse(cloudRecord);
-        if (payload.state) baseState = payload.state;
-      } catch (e) {}
     }
 
     return baseState;
   });
 
-  const [sessionId] = useState(() => `sess_${Math.random().toString(36).substring(7)}`);
-  const [cloudId] = useState('GLOBAL_SYNC'); // Hardcoded for demo stability Across ALL devices
+  const [cloudId] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlId = params.get('buildingId');
+    if (urlId) return urlId;
+    return 'SAFESTAY_MASTER';
+  });
+
+  const [sessionId] = useState(() => `sess_${Math.random().toString(36).substr(2, 9)}`);
+  const isIncomingSync = useRef(false);
+  const localPushTimestamp = useRef(0);
+  const isDataInitialized = useRef(false);
+
+  useEffect(() => {
+    localStorage.setItem('SAFESTAY_CLOUD_ID', cloudId);
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('buildingId') !== cloudId) {
+        params.set('buildingId', cloudId);
+        const newUrl = `${window.location.pathname}?${params.toString()}`;
+        window.history.replaceState({}, '', newUrl);
+    }
+  }, [cloudId]);
+
+  const activeFloor = state.floors.find(f => f.id === state.activeFloorId) || state.floors[0];
+  const mapConfig = activeFloor.config;
+
+  useEffect(() => {
+    if (userLocation.nodeId && mapConfig.nodes.length > 0) {
+      const nodeExists = mapConfig.nodes.some(n => n.id === userLocation.nodeId);
+      if (!nodeExists) {
+        const fallback = mapConfig.nodes[0];
+        setUserLocation({
+          floor: 'Ground Floor',
+          corridor: fallback.label || 'Recalibrated',
+          nodeId: fallback.id,
+          coords: { x: fallback.x, y: fallback.y }
+        });
+      }
+    }
+  }, [mapConfig.nodes]);
+
+  useEffect(() => {
+    const initData = async () => {
+        try {
+            if (db) {
+                const cloudSnap = await getDoc(doc(db, "safestay_buildings", cloudId));
+                if (cloudSnap.exists()) {
+                    const cloudData = cloudSnap.data();
+                    if (cloudData.state) {
+                        console.log("☁️ Data loaded from Cloud");
+                        isDataInitialized.current = true;
+                        setState(cloudData.state);
+                        return;
+                    }
+                } else {
+                    console.log("🚀 Cloud is empty. Checking for local data to migrate...");
+                    
+                    const saved = localStorage.getItem('SAFESTAY_PERSISTENT_DATA');
+                    let initialState;
+
+                    if (saved) {
+                        console.log("📦 Found manual edits in LocalStorage, migrating those to Cloud...");
+                        initialState = JSON.parse(saved);
+                    } else {
+                        console.log("🆕 No data found anywhere. Initializing empty environment.");
+                        initialState = {
+                            floors: [{ id: 'f1', name: 'Ground Floor', config: { nodes: [], links: [], walls: [], zones: [] } }],
+                            guestDB: [],
+                            sosLogs: [],
+                            activeFloorId: 'f1',
+                            pendingIncident: null
+                        };
+                    }
+
+                    setState(initialState);
+                    
+                    // Push to cloud immediately
+                    await setDoc(doc(db, "safestay_buildings", cloudId), {
+                        state: initialState,
+                        engineState: 'IDLE',
+                        timestamp: Date.now()
+                    });
+                    isDataInitialized.current = true;
+                    console.log("✅ Data successfully anchored to Google Cloud");
+                    return;
+                }
+            }
+        } catch (e) {
+            console.warn("Firestore sync failed:", e);
+        }
+
+        // Final fallback to local cache
+        const saved = localStorage.getItem('SAFESTAY_PERSISTENT_DATA');
+        if (saved) {
+            try { setState(JSON.parse(saved)); } catch(e) {}
+        }
+    };
+    initData();
+  }, [cloudId]);
+
+  const forceRestoreFromDisk = async () => {
+    console.log("♻️ Force restoring from disk files...");
+    try {
+        const [mapData, guestData, logData] = await Promise.all([
+          fetch('/data/map_data.json').then(res => res.json()).catch(() => ({ nodes: [], links: [], walls: [], zones: [] })),
+          fetch('/data/guest_data.json').then(res => res.json()).catch(() => []),
+          fetch('/data/log_data.json').then(res => res.json()).catch(() => [])
+        ]);
+
+        const restoredState = {
+            floors: [{ id: 'f1', name: 'Ground Floor', config: mapData }],
+            guestDB: guestData as Guest[],
+            sosLogs: logData as EmergencyLog[],
+            activeFloorId: 'f1',
+            pendingIncident: null
+        };
+
+        setState(restoredState);
+        
+        await setDoc(doc(db, "safestay_buildings", cloudId), {
+            state: restoredState,
+            engineState: 'IDLE',
+            timestamp: Date.now()
+        });
+        console.log("✅ Disk data successfully restored to Cloud");
+        alert("System restored from local files successfully!");
+    } catch (e) {
+        console.error("Restore failed:", e);
+        alert("Failed to restore from local files.");
+    }
+  };
+
 
   const [engineState, setEngineState] = useState<EngineState>(() => {
     try {
@@ -179,14 +313,23 @@ export const EmergencyProvider: React.FC<{children: React.ReactNode}> = ({ child
   const [userLocation, setUserLocation] = useState<{ floor: string; corridor: string; nodeId: string; coords: { x: number; y: number } }>(() => {
     const params = new URLSearchParams(window.location.search);
     const nodeParam = params.get('nodeId') || 'n1';
-    const node = buildingData.mapConfig.nodes.find((n: any) => n.id === nodeParam);
     return {
       floor: '3rd Floor',
       corridor: 'Main Hallway',
       nodeId: nodeParam,
-      coords: node ? { x: node.x, y: node.y } : { x: 500, y: 500 }
+      coords: { x: 500, y: 500 }
     };
   });
+
+  useEffect(() => {
+    const activeFloor = state.floors.find(f => f.id === state.activeFloorId);
+    if (activeFloor) {
+      const node = activeFloor.config.nodes.find(n => n.id === userLocation.nodeId);
+      if (node && (node.x !== userLocation.coords.x || node.y !== userLocation.coords.y)) {
+        setUserLocation(prev => ({ ...prev, coords: { x: node.x, y: node.y } }));
+      }
+    }
+  }, [state, userLocation.nodeId]);
 
   const [instruction, setInstruction] = useState<EmergencyInstruction>(() => {
     try {
@@ -217,10 +360,6 @@ export const EmergencyProvider: React.FC<{children: React.ReactNode}> = ({ child
     localStorage.setItem('SAFESTAY_PERSISTENT_DATA', JSON.stringify(state));
   }, [state]);
 
-  const activeFloor = state.floors.find(f => f.id === state.activeFloorId) || state.floors[0];
-  const mapConfig = activeFloor.config;
-
-  // Handle Deployment Links (?nodeId=...) reactively via Router
   const [searchParams] = useSearchParams();
   useEffect(() => {
     const nodeId = searchParams.get('nodeId');
@@ -232,39 +371,59 @@ export const EmergencyProvider: React.FC<{children: React.ReactNode}> = ({ child
   useEffect(() => {
     localStorage.setItem('SAFESTAY_CLOUD_ID', cloudId);
     
-    // AUTO-PULL ENGINE: Sync from cloud every 2s for multi-device coordination
-    const syncLoop = setInterval(() => {
-      // MASTER PROTECTION: Don't pull if we are an Admin/Saboteur or if we just pushed locally
-      const isControllerPath = window.location.pathname.includes('sabotage') || window.location.pathname.includes('admin');
-      const lastLocalPush = parseInt(localStorage.getItem('SAFESTAY_LAST_LOCAL_UPDATE') || '0');
-      const timeSincePush = Date.now() - lastLocalPush;
+    // Real-time Cloud Sync via Firestore
+    if (!db) return;
 
-      if (isControllerPath || timeSincePush < 5000) {
-        return;
-      }
+    const unsub = onSnapshot(doc(db, "safestay_buildings", cloudId), (docSnap) => {
+        if (docSnap.exists()) {
+            const remoteData = docSnap.data();
+            
+            // Only update if the change came from another client
+            if (remoteData.timestamp <= localPushTimestamp.current) return;
 
-      pullFromCloud(cloudId);
-    }, 2000);
+            isDataInitialized.current = true;
+            isIncomingSync.current = true;
+            
+            if (remoteData.state) setState(remoteData.state);
+            if (remoteData.engineState) setEngineState(remoteData.engineState);
+            if (remoteData.incidentType) setIncidentType(remoteData.incidentType);
+            if (remoteData.hazardZones) setHazardZones(remoteData.hazardZones);
+            if (remoteData.instruction) setInstruction(remoteData.instruction);
+        }
+    });
 
-    // Also listen for cross-tab storage events for instant sync
-    const handleStorage = (e: StorageEvent) => {
-      if (e.key === `CLOUD_SYNC_${cloudId}`) {
-        pullFromCloud(cloudId);
-      }
-    };
-    window.addEventListener('storage', handleStorage);
-
-    return () => {
-      clearInterval(syncLoop);
-      window.removeEventListener('storage', handleStorage);
-    };
+    return () => unsub();
   }, [cloudId]);
 
-  // REACTIVE CLOUD BROADCASTER: Auto-push state changes to sync guests/staff
+  const saveToDisk = async (fullData: any) => {
+    try {
+      const now = Date.now();
+      localPushTimestamp.current = now;
+      
+      const payload = {
+        ...fullData,
+        engineState,
+        incidentType,
+        hazardZones,
+        instruction,
+        timestamp: now
+      };
+
+      await setDoc(doc(db, "safestay_buildings", cloudId), payload);
+    } catch (e) {
+      console.error("Cloud Disk save failed", e);
+    }
+  };
+
   useEffect(() => {
     const autoPush = setTimeout(() => {
-      // Only push if we are NOT in the middle of a pull to avoid loops
-      if (syncStatus === 'IDLE' || syncStatus === 'SUCCESS') {
+        if (!isDataInitialized.current) return;
+
+        if (isIncomingSync.current) {
+          isIncomingSync.current = false;
+          return;
+        }
+
         const fullPayload = {
             state,
             engineState,
@@ -272,22 +431,34 @@ export const EmergencyProvider: React.FC<{children: React.ReactNode}> = ({ child
             hazardZones,
             instruction,
             safeRoute,
-            userLocation,
             timestamp: Date.now()
         };
-        localStorage.setItem(`CLOUD_SYNC_${cloudId}`, JSON.stringify(fullPayload));
-      }
-    }, 1000); // 1s debounce
+
+        localStorage.setItem('SAFESTAY_PERSISTENT_DATA', JSON.stringify(state));
+        
+        if (syncStatus === 'IDLE' || syncStatus === 'SUCCESS') {
+          localPushTimestamp.current = fullPayload.timestamp;
+          localStorage.setItem(`CLOUD_SYNC_${cloudId}`, JSON.stringify(fullPayload));
+        }
+
+        const activeFloor = state.floors.find(f => f.id === state.activeFloorId) || state.floors[0];
+        const diskData = {
+          mapConfig: activeFloor.config,
+          guests: state.guestDB,
+          logs: state.sosLogs,
+          pendingIncident: state.pendingIncident
+        };
+        saveToDisk(diskData);
+
+    }, 100); 
 
     return () => clearTimeout(autoPush);
   }, [state, hazardZones, engineState, instruction, safeRoute, cloudId]);
 
-  // Presence & Heartbeat Engine
   useEffect(() => {
     const heartbeatLoop = setInterval(() => {
       const now = Date.now();
       
-      // 1. If we are a guest (have nodeId), push our heartbeat
       if (userLocation.nodeId) {
         try {
           const presence = JSON.parse(localStorage.getItem('SAFESTAY_LIVE_PRESENCE') || '[]');
@@ -299,7 +470,6 @@ export const EmergencyProvider: React.FC<{children: React.ReactNode}> = ({ child
         }
       }
 
-      // 2. Regardless of who we are, pull all live sessions to state
       try {
         const remotePresence = JSON.parse(localStorage.getItem('SAFESTAY_LIVE_PRESENCE') || '[]');
         const liveOnly = remotePresence.filter((p: any) => (now - p.lastActive < 10000));
@@ -328,8 +498,8 @@ export const EmergencyProvider: React.FC<{children: React.ReactNode}> = ({ child
         instruction,
         timestamp: now
     };
+    localPushTimestamp.current = now;
     localStorage.setItem(`CLOUD_SYNC_${cloudId}`, JSON.stringify(fullPayload));
-    localStorage.setItem('SAFESTAY_LAST_LOCAL_UPDATE', now.toString());
   };
 
   const pullFromCloud = async (targetId: string) => {
@@ -338,14 +508,11 @@ export const EmergencyProvider: React.FC<{children: React.ReactNode}> = ({ child
         if (remoteData) {
             const payload = JSON.parse(remoteData);
             
-            // Only update if remote state is newer to prevent loops
-            const localLastUpdate = parseInt(localStorage.getItem('SAFESTAY_LAST_LOCAL_UPDATE') || '0');
-            if (payload.timestamp <= localLastUpdate) return false;
+            if (payload.timestamp <= localPushTimestamp.current) return false;
 
-            // Sync Persistence (Silent update to avoid triggering another push)
+            isIncomingSync.current = true;
             if (payload.state) setState(payload.state);
             
-            // Sync Engine State
             if (payload.engineState) setEngineState(payload.engineState);
             if (payload.incidentType) setIncidentType(payload.incidentType);
             if (payload.hazardZones) setHazardZones(payload.hazardZones);
@@ -359,11 +526,34 @@ export const EmergencyProvider: React.FC<{children: React.ReactNode}> = ({ child
     }
   };
 
-  const updateMap = (nodes: MapNode[], links: MapLink[], walls: MapWall[], zones: MapZone[]) => {
+  const [history, setHistory] = useState<any[]>([]);
+
+  const updateMap = (updater: (prevConfig: MapConfig) => MapConfig) => {
+    const activeFloor = state.floors.find(f => f.id === state.activeFloorId);
+    if (!activeFloor) return;
+
+    setHistory(h => [
+      { floorId: state.activeFloorId, config: JSON.parse(JSON.stringify(activeFloor.config)) },
+      ...h.slice(0, 49)
+    ]);
+
+    const newConfig = updater(activeFloor.config);
+    
     setState(prev => ({
       ...prev,
-      floors: prev.floors.map(f => f.id === prev.activeFloorId ? { ...f, config: { nodes, links, walls, zones } } : f)
+      floors: prev.floors.map(f => f.id === prev.activeFloorId ? { ...f, config: newConfig } : f)
     }));
+  };
+
+  const undoMap = () => {
+    if (history.length === 0) return;
+    const [lastAction, ...remainingHistory] = history;
+    
+    setState(prev => ({
+      ...prev,
+      floors: prev.floors.map(f => f.id === lastAction.floorId ? { ...f, config: lastAction.config } : f)
+    }));
+    setHistory(remainingHistory);
   };
 
   const addFloor = (name: string) => {
@@ -374,8 +564,6 @@ export const EmergencyProvider: React.FC<{children: React.ReactNode}> = ({ child
       activeFloorId: id
     }));
   };
-
-
 
   const switchFloor = (id: string) => {
     setState(prev => ({ ...prev, activeFloorId: id }));
@@ -392,7 +580,6 @@ export const EmergencyProvider: React.FC<{children: React.ReactNode}> = ({ child
       const nodeId = path[path.length - 1];
       const node = currentNodes.find(n => n.id === nodeId);
       
-      // Allow start node to be a hazard, but skip if any intermediate node is a hazard
       if (!node) continue;
       if (node.isHazard && path.length > 1) continue; 
       
@@ -431,20 +618,31 @@ export const EmergencyProvider: React.FC<{children: React.ReactNode}> = ({ child
 
   const generateSVGPath = (nodeIds: string[]) => {
     if (!nodeIds || nodeIds.length === 0) return "";
-    const points = nodeIds.map(id => {
-      const n = mapConfig.nodes.find((node: MapNode) => node.id === id);
-      return n ? `${n.x},${n.y}` : "";
-    });
+    const points = nodeIds
+      .map(id => mapConfig.nodes.find((node: MapNode) => node.id === id))
+      .filter((n): n is MapNode => !!n) 
+      .map(n => `${n.x},${n.y}`);
+    
+    if (points.length < 2) return ""; 
     return "M" + points.join(" L");
   };
 
   const setInitialNode = (nodeId: string) => {
-    const targetFloor = state.floors.find(f => f.config.nodes.some(n => n.id === nodeId));
+    let targetFloor = state.floors.find(f => f.config.nodes.some(n => n.id === nodeId));
+    let targetNodeId = nodeId;
+
+    if (!targetFloor && state.floors.length > 0) {
+      targetFloor = state.floors[0];
+      if (targetFloor.config.nodes.length > 0) {
+        targetNodeId = targetFloor.config.nodes[0].id;
+      }
+    }
+
     if (targetFloor) {
       if (state.activeFloorId !== targetFloor.id) {
           setState(prev => ({ ...prev, activeFloorId: targetFloor.id }));
       }
-      const node = targetFloor.config.nodes.find(n => n.id === nodeId);
+      const node = targetFloor.config.nodes.find(n => n.id === targetNodeId);
       if (node) {
           setUserLocation({ floor: targetFloor.name, corridor: node.label || 'Assigned Zone', nodeId: node.id, coords: {x: node.x, y: node.y} });
       }
@@ -461,7 +659,7 @@ export const EmergencyProvider: React.FC<{children: React.ReactNode}> = ({ child
     setOtherActiveAlerts(0);
     setState(prev => ({ 
       ...prev, 
-      sosLogs: [],
+      sosLogs: prev.sosLogs.map(l => ({ ...l, status: 'RESOLVED' })),
       floors: prev.floors.map(f => ({
         ...f,
         config: {
@@ -472,44 +670,146 @@ export const EmergencyProvider: React.FC<{children: React.ReactNode}> = ({ child
     }));
   };
 
-  const triggerSOS = (atNodeId?: string) => {
-    const origin = atNodeId || userLocation.nodeId;
+  const wipeLogs = () => {
+    setState(prev => ({ ...prev, sosLogs: [] }));
+  };
+
+  const resolveIncident = (logId: string) => {
+    setState(prev => {
+        const log = prev.sosLogs.find(l => l.id === logId);
+        const updatedLogs = prev.sosLogs.map(l => l.id === logId ? { ...l, status: 'RESOLVED' as const } : l);
+        
+        const hasActive = updatedLogs.some(l => l.status === 'ACTIVE');
+        if (!hasActive) {
+            setEngineState('IDLE');
+            setIncidentType(null);
+            setInstruction({ title: "SafeStay AI", subtitle: "All Clear", color: "var(--safe-green)" });
+            setHazardZones([]);
+            setSafeRoute(null);
+        }
+
+        let updatedFloors = prev.floors;
+        if (log && log.nodeId) {
+            updatedFloors = prev.floors.map(f => ({
+                ...f,
+                config: {
+                    ...f.config,
+                    nodes: f.config.nodes.map(n => n.id === log.nodeId ? { ...n, isHazard: false } : n)
+                }
+            }));
+        }
+
+        return { ...prev, sosLogs: updatedLogs, floors: updatedFloors };
+    });
+  };
+
+  const triggerSOS = (type: 'MEDICAL' | 'THREAT', subtype?: string) => {
+    const origin = userLocation.nodeId;
     const node = mapConfig.nodes.find((n: MapNode) => n.id === origin);
     
-    if (node) {
-      setUserLocation(prev => ({ ...prev, nodeId: node.id, coords: {x: node.x, y: node.y} }));
-      setState(prev => ({ ...prev, sosLogs: [...prev.sosLogs, { timestamp: new Date().toLocaleTimeString(), nodeId: origin, event: 'SOS_TRIGGERED' }] }));
-    }
-    
+    if (!node) return;
+
     setEngineState('ANALYZING');
-    setInstruction({ title: "SOS ACTIVATED", subtitle: "Calculating safest route...", color: "var(--primary-red)" });
+    setInstruction({ 
+      title: "REPORT RECEIVED", 
+      subtitle: `Analyzing ${subtype || type} report at ${node.label || origin}...`, 
+      color: "var(--warning-yellow)" 
+    });
+
+    setTimeout(async () => {
+      const aiVerification = {
+        confidence: 0.85,
+        aiAssessment: type === 'MEDICAL' ? `Medical distress detected in Room ${node.label || origin}. Vital signs monitoring required.` : `AI detected visual signatures of ${subtype || type} in Room ${node.label || origin}.`,
+        suggestedAction: type === 'MEDICAL' ? "DEPLOY FIRST AID" : "IMMEDIATE EVACUATION"
+      };
+
+      const newIncident = {
+        id: `inc_${Date.now()}`,
+        type,
+        subtype,
+        nodeId: origin,
+        timestamp: new Date().toISOString(),
+        aiVerification,
+        status: 'PENDING_REVIEW'
+      };
+
+      setState(prev => ({ ...prev, pendingIncident: newIncident }));
+
+      setInstruction({ 
+        title: "AWAITING STAFF", 
+        subtitle: type === 'MEDICAL' ? "Requesting medical assistance..." : "AI has verified threat. Awaiting Security confirmation.", 
+        color: type === 'MEDICAL' ? "#38bdf8" : "var(--primary-red)" 
+      });
+      setCctvFeed(`LIVE: ${node.label || origin} - CAM_SECURE`);
+    }, 200);
+  };
+
+  const confirmIncident = (incidentId: string, confirmed: boolean) => {
+    if (!state.pendingIncident || state.pendingIncident.id !== incidentId) return;
+
+    const currentPending = state.pendingIncident;
+
+    if (!confirmed) {
+      setState(prev => ({ ...prev, pendingIncident: null }));
+      setEngineState('IDLE');
+      setInstruction({ title: "REPORT REJECTED", subtitle: "Staff dismissed report.", color: "var(--text-muted)" });
+      return;
+    }
+
+    const newEngineState = currentPending.type === 'MEDICAL' ? 'IDLE' : 'EVACUATING';
+    const newInstruction = currentPending.type === 'MEDICAL' 
+      ? { title: "MEDICAL DEPLOYED", subtitle: "First aid team is on the way. Stay where you are.", color: "#38bdf8" }
+      : { title: "EVACUATING", subtitle: "Follow the safe path on your map.", color: "#ef4444" };
+
+    setEngineState(newEngineState);
+    setInstruction(newInstruction);
+    setIncidentType(currentPending.subtype?.toUpperCase() || currentPending.type);
     
-    setTimeout(() => {
-      setEngineState('EVACUATING');
-      setIncidentType('FIRE EMERGENCY');
-      setCctvFeed('LIVE: CAM_SECURE');
-      const pathIds = findPath(origin, mapConfig.nodes, mapConfig.links);
+    setState(prev => ({
+      ...prev,
+      pendingIncident: null,
+      sosLogs: [...prev.sosLogs, { 
+        id: currentPending.id, 
+        timestamp: currentPending.timestamp, 
+        nodeId: currentPending.nodeId, 
+        event: `${currentPending.type}_CONFIRMED`,
+        status: 'ACTIVE' as const,
+        description: `Staff validated ${currentPending.subtype || currentPending.type}. AI Confidence: 85%`
+      } as EmergencyLog]
+    }));
+
+    if (currentPending.type !== 'MEDICAL') {
+      const pathIds = findPath(currentPending.nodeId, mapConfig.nodes, mapConfig.links);
       setSafeRoute(pathIds ? generateSVGPath(pathIds) : null);
-      if (pathIds) {
-          const lastNodeId = pathIds[pathIds.length - 1];
-          const lastNode = mapConfig.nodes.find(n => n.id === lastNodeId);
-          setInstruction({ 
-            title: lastNode?.type === 'HIDEOUT' ? "HEAD TO HIDEOUT" : "MOVE FORWARD", 
-            subtitle: lastNode?.type === 'HIDEOUT' ? "Path to exit blocked. Moving to safe zone." : `Following route to ${lastNode?.label || 'Exit'}`, 
-            color: "var(--safe-green)" 
-          });
-      }
-    }, 2000);
+    }
   };
 
   const triggerHazardAtNode = (nodeId: string) => {
-    // LOCK SYSTEM: Immediately signify local control to prevent pull-overwrite
     localStorage.setItem('SAFESTAY_LAST_LOCAL_UPDATE', Date.now().toString());
 
-    const updatedNodes = mapConfig.nodes.map((n: MapNode) => n.id === nodeId ? { ...n, isHazard: true } : n);
-    updateMap(updatedNodes, mapConfig.links, mapConfig.walls, mapConfig.zones);
-    
     const node = mapConfig.nodes.find((n: MapNode) => n.id === nodeId);
+    
+    setState(prev => {
+      const currentActiveFloor = prev.floors.find(f => f.id === prev.activeFloorId) || prev.floors[0];
+      const updatedNodes = currentActiveFloor.config.nodes.map((n: MapNode) => n.id === nodeId ? { ...n, isHazard: true } : n);
+      
+      return {
+        ...prev,
+        sosLogs: [
+          ...prev.sosLogs, 
+          { 
+            id: `log_${Date.now()}`,
+            timestamp: new Date().toISOString(), 
+            nodeId, 
+            event: 'FIRE_DETECTED',
+            status: 'ACTIVE' as const,
+            description: `Unauthorized hazard deployment at ${node?.label || nodeId}`
+          } as EmergencyLog
+        ],
+        floors: prev.floors.map(f => f.id === prev.activeFloorId ? { ...f, config: { ...f.config, nodes: updatedNodes } } : f)
+      };
+    });
+    
     if (node) {
       setHazardZones(prev => {
         const exists = prev.some(h => h.cx === node.x.toString() && h.cy === node.y.toString());
@@ -522,7 +822,8 @@ export const EmergencyProvider: React.FC<{children: React.ReactNode}> = ({ child
     setInstruction({ title: "PATH BLOCKED", subtitle: "Rerouting around hazard...", color: "var(--warning-yellow)" });
 
     setTimeout(() => {
-      const newPathIds = findPath(userLocation.nodeId, updatedNodes, mapConfig.links);
+      const updatedNodesForPath = mapConfig.nodes.map((n: MapNode) => n.id === nodeId ? { ...n, isHazard: true } : n);
+      const newPathIds = findPath(userLocation.nodeId, updatedNodesForPath, mapConfig.links);
       setSafeRoute(newPathIds ? generateSVGPath(newPathIds) : null);
       setInstruction({ title: "NEW ROUTE", subtitle: "Follow updated path to Exit", color: "var(--safe-green)" });
     }, 2000);
@@ -543,7 +844,6 @@ export const EmergencyProvider: React.FC<{children: React.ReactNode}> = ({ child
     }, 2000);
   };
 
-  // Reactive Neural Routing: Recalculate path when map conditions or position change
   useEffect(() => {
     if (userLocation.nodeId) {
       const pathIds = findPath(userLocation.nodeId, mapConfig.nodes, mapConfig.links);
@@ -554,112 +854,42 @@ export const EmergencyProvider: React.FC<{children: React.ReactNode}> = ({ child
   const analyzeExits = () => {
     const bottlenecks: string[] = [];
     const suggestions: string[] = [];
+    
+    // Core Navigation nodes that MUST be connected
+    const coreNavTypes = ['ROOM', 'CORRIDOR', 'STAIRS', 'ELEVATOR', 'HIDEOUT'];
+
     mapConfig.nodes.forEach(node => {
-      if (node.type === 'FIRE_EXIT') return;
+      if (!coreNavTypes.includes(node.type)) return; // Standalone assets don't need routes
+      
       const path = findPath(node.id, mapConfig.nodes, mapConfig.links);
       if (!path) {
         bottlenecks.push(node.id);
-        suggestions.push(`CRITICAL: Node ${node.id} is isolated!`);
+        suggestions.push(`CRITICAL: ${node.label || node.type} (${node.id}) is isolated from emergency exits!`);
       }
     });
     return { bottlenecks, suggestions };
   };
 
-  const simulateVisionImport = () => {
-    // Advanced AI Simulation: Detection of Hackathon Professional Layout
-    // Reconstructing the EXACT map from the user's design
-    const nodes: MapNode[] = [];
-    const links: MapLink[] = [];
-    const zones: MapZone[] = [];
-
-    // 1. TOP ROW: Room 003, 004, 005
-    zones.push({ id: 'z-003', x: 100, y: 100, w: 300, h: 300, type: 'ROOM_ZONE', label: 'Room 003' });
-    zones.push({ id: 'z-004', x: 400, y: 100, w: 300, h: 300, type: 'ROOM_ZONE', label: 'Room 004' });
-    zones.push({ id: 'z-005', x: 700, y: 100, w: 300, h: 300, type: 'ROOM_ZONE', label: 'Room 005' });
-
-    nodes.push({ id: 'n-003', x: 250, y: 380, type: 'ROOM', label: '003 Entry' });
-    nodes.push({ id: 'n-004', x: 550, y: 380, type: 'ROOM', label: '004 Entry' });
-    nodes.push({ id: 'n-005', x: 800, y: 380, type: 'ROOM', label: '005 Entry' });
-
-    // 2. MIDDLE ROW: Room 002, Corridor 2, Room 006
-    zones.push({ id: 'z-002', x: 100, y: 400, w: 180, h: 180, type: 'ROOM_ZONE', label: 'Room 002' });
-    zones.push({ id: 'z-corr2', x: 280, y: 400, w: 540, h: 100, type: 'CORRIDOR_ZONE', label: 'Corridor 2' });
-    zones.push({ id: 'z-006', x: 820, y: 400, w: 180, h: 180, type: 'ROOM_ZONE', label: 'Room 006' });
-
-    nodes.push({ id: 'n-002', x: 260, y: 450, type: 'ROOM', label: '002 Entry' });
-    nodes.push({ id: 'n-corr2-l', x: 320, y: 450, type: 'CORRIDOR', label: 'Hall 2-L' });
-    nodes.push({ id: 'n-corr2-r', x: 750, y: 450, type: 'CORRIDOR', label: 'Hall 2-R' });
-    nodes.push({ id: 'n-006', x: 830, y: 450, type: 'ROOM', label: '006 Entry' });
-
-    // 3. BOTTOM ROW: Room 001, Corridor 1, Entrance Hall, Corridor 3, Room 007
-    zones.push({ id: 'z-001', x: 100, y: 580, w: 180, h: 180, type: 'ROOM_ZONE', label: 'Room 001' });
-    zones.push({ id: 'z-corr1', x: 280, y: 500, w: 100, h: 260, type: 'CORRIDOR_ZONE', label: 'Corridor 1' });
-    zones.push({ id: 'z-entrance', x: 380, y: 500, w: 340, h: 260, type: 'LOBBY_ZONE', label: 'Entrance Hall' });
-    zones.push({ id: 'z-corr3', x: 720, y: 500, w: 100, h: 260, type: 'CORRIDOR_ZONE', label: 'Corridor 3' });
-    zones.push({ id: 'z-007', x: 820, y: 580, w: 180, h: 180, type: 'ROOM_ZONE', label: 'Room 007' });
-
-    nodes.push({ id: 'n-001', x: 260, y: 720, type: 'ROOM', label: '001 Entry' });
-    nodes.push({ id: 'n-corr1-b', x: 320, y: 720, type: 'CORRIDOR', label: 'Hall 1-Bottom' });
-    nodes.push({ id: 'n-entrance-top', x: 550, y: 600, type: 'CORRIDOR', label: 'Lobby Central' });
-    nodes.push({ id: 'n-entrance-bot', x: 550, y: 720, type: 'CORRIDOR', label: 'Main Desk' });
-    nodes.push({ id: 'n-corr3-b', x: 750, y: 720, type: 'CORRIDOR', label: 'Hall 3-Bottom' });
-    nodes.push({ id: 'n-007', x: 830, y: 720, type: 'ROOM', label: '007 Entry' });
-
-    // 4. MAIN EXITS (Bottom Red Icons)
-    nodes.push({ id: 'exit-1', x: 320, y: 850, type: 'FIRE_EXIT', label: 'EXIT 1' });
-    nodes.push({ id: 'exit-2', x: 550, y: 850, type: 'FIRE_EXIT', label: 'MAIN EXIT' });
-    nodes.push({ id: 'exit-3', x: 750, y: 850, type: 'FIRE_EXIT', label: 'EXIT 3' });
-
-    // 5. LINKS (Evacuation Routing)
-    // Top to Hallway
-    links.push({ source: 'n-003', target: 'n-corr2-l' });
-    links.push({ source: 'n-004', target: 'n-entrance-top' });
-    links.push({ source: 'n-005', target: 'n-corr2-r' });
-
-    // Hallway Connections
-    links.push({ source: 'n-corr2-l', target: 'n-002' });
-    links.push({ source: 'n-corr2-l', target: 'n-corr2-r' });
-    links.push({ source: 'n-corr2-r', target: 'n-006' });
-    
-    // Vertical Corridors
-    links.push({ source: 'n-corr2-l', target: 'n-corr1-b' });
-    links.push({ source: 'n-corr2-r', target: 'n-corr3-b' });
-    links.push({ source: 'n-entrance-top', target: 'n-entrance-bot' });
-
-    // Bottom Connectors
-    links.push({ source: 'n-corr1-b', target: 'n-001' });
-    links.push({ source: 'n-corr1-b', target: 'n-entrance-bot' });
-    links.push({ source: 'n-entrance-bot', target: 'n-corr3-b' });
-    links.push({ source: 'n-corr3-b', target: 'n-007' });
-
-    // Exit Links
-    links.push({ source: 'n-corr1-b', target: 'exit-1' });
-    links.push({ source: 'n-entrance-bot', target: 'exit-2' });
-    links.push({ source: 'n-corr3-b', target: 'exit-3' });
-
-    updateMap(nodes, links, [], zones);
-  };
-
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() === 'h') {
-        const pathNodeId = userLocation.nodeId === 'n1' ? 'n2' : userLocation.nodeId;
-        triggerHazardAtNode(pathNodeId);
+      if (e.ctrlKey && e.key === 'z') {
+        undoMap();
       }
-      if (e.key.toLowerCase() === 'r') resetSystem();
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [userLocation.nodeId, mapConfig]);
+  }, [history]);
 
   return (
     <EmergencyContext.Provider value={{ 
       engineState, userLocation, cctvFeed, incidentType, instruction, hazardZones, mapConfig, safeRoute, guestDB: state.guestDB, sosLogs: state.sosLogs, otherActiveAlerts, activeGuests, 
+      pendingIncident: state.pendingIncident, confirmIncident,
       triggerSOS, 
       addFloor,
       switchFloor,
-      simulateVisionImport,
       resetSystem,
+      wipeLogs,
+      resolveIncident,
       updateGuests,
       triggerHazardAtNode, updateMap, setInitialNode, analyzeExits, triggerDeviation,
       floors: state.floors, 
@@ -667,7 +897,20 @@ export const EmergencyProvider: React.FC<{children: React.ReactNode}> = ({ child
       cloudId,
       syncStatus,
       pushToCloud,
-      pullFromCloud
+      pullFromCloud,
+      undoMap,
+      canUndo: history.length > 0,
+      forceRestoreFromDisk,
+      saveToDisk: (aiMapData?: any) => {
+        const activeFloor = state.floors.find(f => f.id === state.activeFloorId) || state.floors[0];
+        saveToDisk({
+          mapConfig: activeFloor.config,
+          guests: state.guestDB,
+          logs: state.sosLogs,
+          pendingIncident: state.pendingIncident,
+          aiMapData: aiMapData
+        });
+      }
     }}>
       {children}
     </EmergencyContext.Provider>

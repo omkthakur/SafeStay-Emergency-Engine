@@ -1,21 +1,25 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-// Explicitly using 'v1' to avoid 'v1beta' 404 errors with some keys/models
-const genAI = new GoogleGenerativeAI(API_KEY);
+// Explicitly enforcing 'v1' to avoid 'v1beta' 404 errors with production models
+const genAI = new GoogleGenerativeAI(API_KEY); // Note: Some SDK versions use this directly, others need a config. 
+// However, the error message 'models/gemini-1.5-flash-latest is not found for API version v1beta'
+// indicates that the SDK is defaulting to v1beta.
+// I'll try to use the model names that ARE definitely on v1beta or try to force v1.
+
 
 interface SafetyAnalysisResult {
   bottlenecks: string[];
   suggestions: string[];
 }
 
-const MODEL_NAMES = ["gemini-1.5-flash", "gemini-1.5-flash-latest"];
+const MODEL_NAMES = ["gemini-1.5-flash-latest", "gemini-1.5-flash", "gemini-1.5-flash-001"];
 
 export const analyzeSafetyMap = async (mapData: any): Promise<SafetyAnalysisResult> => {
   for (const modelName of MODEL_NAMES) {
     try {
-      // Trying the request with different model naming conventions
-      const model = genAI.getGenerativeModel({ model: modelName });
+      // Explicitly requesting the 'v1' API version to resolve 404/v1beta issues
+      const model = genAI.getGenerativeModel({ model: modelName }, { apiVersion: 'v1' });
       
       const prompt = `
         You are an expert safety consultant. Analyze the following building evacuation map data (nodes and links).
@@ -43,7 +47,8 @@ export const analyzeSafetyMap = async (mapData: any): Promise<SafetyAnalysisResu
 export const generateMapFromBlueprint = async (description: string) => {
     for (const modelName of MODEL_NAMES) {
         try {
-            const model = genAI.getGenerativeModel({ model: modelName });
+            // Enforcing v1 to avoid beta model mismatches
+            const model = genAI.getGenerativeModel({ model: modelName }, { apiVersion: 'v1' });
             const prompt = `Generate a JSON safety map for: ${description}. Format: {nodes: [], links: []}`;
             const result = await model.generateContent(prompt);
             const text = result.response.text();

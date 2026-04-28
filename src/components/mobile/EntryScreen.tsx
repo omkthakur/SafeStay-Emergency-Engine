@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { AlertTriangle, Map, MapPin, Activity, Wifi, Compass } from 'lucide-react';
 import styles from './mobile.module.css';
 import { useEmergencyEngine } from '../../context/EmergencyContext';
@@ -7,8 +7,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 export const EntryScreen: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [isConfirming, setIsConfirming] = useState(false);
-  const { triggerSOS, engineState, instruction, userLocation, setInitialNode } = useEmergencyEngine();
+  const { engineState, userLocation, setInitialNode, forceRestoreFromDisk } = useEmergencyEngine();
 
   useEffect(() => {
     const nodeId = searchParams.get('nodeId');
@@ -17,27 +16,11 @@ export const EntryScreen: React.FC = () => {
     }
   }, [searchParams, setInitialNode]);
 
-  const handleSosClick = () => {
-    setIsConfirming(true);
-    triggerSOS();
-  };
-
   useEffect(() => {
     if (engineState === 'EVACUATING') {
       navigate('/map');
     }
   }, [engineState, navigate]);
-
-  if (isConfirming) {
-    return (
-      <div className={styles.entryContainer} style={{ justifyContent: 'center', alignItems: 'center', backgroundColor: 'var(--primary-red)' }}>
-        <AlertTriangle size={64} color="#fff" style={{ marginBottom: 24, animation: 'pulse 1s infinite' }} />
-        <h1 style={{ color: '#fff', fontSize: 32, textAlign: 'center', fontWeight: 800 }}>{instruction.title || "SOS ACTIVATED"}</h1>
-        <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: 18, marginTop: 16 }}>Help is on the way.</p>
-        <p style={{ color: '#fff', fontSize: 14, marginTop: 40, opacity: 0.8 }}>{instruction.subtitle || "Calculating safest route..."}</p>
-      </div>
-    );
-  }
 
   return (
     <div className={styles.entryContainer}>
@@ -58,7 +41,7 @@ export const EntryScreen: React.FC = () => {
       </div>
       
       <div className={styles.buttonGroup}>
-        <button className={`${styles.btn} ${styles.btnSos}`} onClick={handleSosClick}>
+        <button className={`${styles.btn} ${styles.btnSos}`} onClick={() => navigate('/sos' + window.location.search)}>
           <AlertTriangle size={48} />
           <span>1. SOS</span>
           <span style={{ fontSize: 14, opacity: 0.8, fontWeight: 400 }}>Emergency</span>
@@ -66,7 +49,10 @@ export const EntryScreen: React.FC = () => {
         
         <button 
             className={`${styles.btn} ${styles.btnMap}`} 
-            onClick={() => window.location.href = `/map?nodeId=${userLocation.nodeId}`}
+            onClick={() => {
+                const nodeId = searchParams.get('nodeId') || userLocation.nodeId;
+                navigate(`/map?nodeId=${nodeId}`);
+            }}
         >
           <Map size={48} color="var(--safe-green)" />
           <span>2. MAP</span>
@@ -79,7 +65,13 @@ export const EntryScreen: React.FC = () => {
             <div className="flex-center" style={{ gap: '6px', fontSize: '11px' }}>
                <Activity size={14} color="var(--safe-green)" /> Motion Sensor Active
             </div>
-            <div style={{ fontSize: '11px' }}>v2.4-LOCAL</div>
+            <div 
+              onClick={forceRestoreFromDisk}
+              style={{ fontSize: '11px', cursor: 'pointer', color: 'var(--safe-green)', textDecoration: 'underline' }}
+            >
+              RESTORE FROM DISK
+            </div>
+            <div style={{ fontSize: '11px' }}>v2.5-CLOUD</div>
          </div>
       </div>
     </div>

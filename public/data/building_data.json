@@ -1,0 +1,62 @@
+{
+  "mapConfig": {
+    "nodes": [],
+    "links": [],
+    "walls": [],
+    "zones": [
+      {
+        "id": "z1777318719382",
+        "x": 453,
+        "y": 421,
+        "w": 74,
+        "h": 21,
+        "type": "ROOM_ZONE",
+        "label": "Room/Conf 1"
+      }
+    ]
+  },
+  "guests": [
+    {
+      "room": "Room 315",
+      "name": "John Doe",
+      "tags": [
+        "Wheelchair",
+        "Oxygen Dependent"
+      ],
+      "priority": "HIGH",
+      "id": "g0",
+      "count": 1
+    },
+    {
+      "room": "Room 402",
+      "name": "Jane Smith",
+      "tags": [
+        "Elderly",
+        "Vision Impaired"
+      ],
+      "priority": "HIGH",
+      "id": "g1",
+      "count": 1
+    },
+    {
+      "room": "Room 318",
+      "name": "Alisa K.",
+      "tags": [
+        "Child"
+      ],
+      "priority": "MEDIUM",
+      "id": "g2",
+      "count": 1
+    },
+    {
+      "room": "Room 501",
+      "name": "Mark L.",
+      "tags": [],
+      "priority": "LOW",
+      "id": "g3",
+      "count": 1
+    }
+  ],
+  "logs": [],
+  "pendingIncident": null
+}

@@ -1,0 +1,74 @@
+[
+  {
+    "id": "log_1777324721915",
+    "timestamp": "2026-04-27T21:18:41.915Z",
+    "nodeId": "n1777323734212",
+    "event": "FIRE_DETECTED",
+    "status": "RESOLVED",
+    "description": "Unauthorized hazard deployment at Corridor C7"
+  },
+  {
+    "id": "log_1777324739226",
+    "timestamp": "2026-04-27T21:18:59.226Z",
+    "nodeId": "n1777323907284",
+    "event": "FIRE_DETECTED",
+    "status": "RESOLVED",
+    "description": "Unauthorized hazard deployment at Hall Centre"
+  },
+  {
+    "id": "log_1777324751908",
+    "timestamp": "2026-04-27T21:19:11.908Z",
+    "nodeId": "n1777323770381",
+    "event": "FIRE_DETECTED",
+    "status": "RESOLVED",
+    "description": "Unauthorized hazard deployment at Corridor C10"
+  },
+  {
+    "id": "log_1777324764187",
+    "timestamp": "2026-04-27T21:19:24.187Z",
+    "nodeId": "n1777323798349",
+    "event": "FIRE_DETECTED",
+    "status": "RESOLVED",
+    "description": "Unauthorized hazard deployment at Corridor C13"
+  },
+  {
+    "id": "log_1777324775340",
+    "timestamp": "2026-04-27T21:19:35.340Z",
+    "nodeId": "n1777323540476",
+    "event": "FIRE_DETECTED",
+    "status": "RESOLVED",
+    "description": "Unauthorized hazard deployment at Corridor C1"
+  },
+  {
+    "id": "log_1777324783569",
+    "timestamp": "2026-04-27T21:19:43.569Z",
+    "nodeId": "n1777324285356",
+    "event": "FIRE_DETECTED",
+    "status": "RESOLVED",
+    "description": "Unauthorized hazard deployment at MAIN EXIT"
+  },
+  {
+    "id": "log_1777326886351",
+    "timestamp": "2026-04-27T21:54:46.351Z",
+    "nodeId": "n1777323907284",
+    "event": "FIRE_DETECTED",
+    "status": "RESOLVED",
+    "description": "Unauthorized hazard deployment at Hall Centre"
+  },
+  {
+    "id": "log_1777326896797",
+    "timestamp": "2026-04-27T21:54:56.797Z",
+    "nodeId": "n1777323834956",
+    "event": "FIRE_DETECTED",
+    "status": "RESOLVED",
+    "description": "Unauthorized hazard deployment at Corridor C15"
+  },
+  {
+    "id": "inc_1777327012563",
+    "timestamp": "2026-04-27T21:56:52.563Z",
+    "nodeId": "n1777323392603",
+    "event": "MEDICAL_CONFIRMED",
+    "status": "RESOLVED",
+    "description": "Staff validated MEDICAL. AI Confidence: 85%"
+  }
+]

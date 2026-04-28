@@ -9,13 +9,17 @@
 }
 
 .sidebar {
-  background-color: #0f172a;
-  border-right: 1px solid #1e293b;
-  padding: 16px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.95) 0%, rgba(10, 15, 30, 0.98) 100%);
+  backdrop-filter: blur(40px);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 24px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 28px;
   overflow-y: auto;
+  box-shadow: 20px 0 50px rgba(0, 0, 0, 0.6);
+  z-index: 20;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .workflow {
@@ -33,7 +37,7 @@
 .canvasContainer {
   width: 100%;
   height: 100%;
-  overflow: auto;
+  overflow: hidden;
   cursor: grab;
   position: relative;
 }
@@ -47,17 +51,22 @@
   height: 3000px;
   background: rgba(15, 23, 42, 0.4);
   border: 4px solid #1e293b;
-  position: relative;
+  position: absolute;
+  top: 0;
+  left: 0;
   transform-origin: 0 0;
 }
 
 .rightPanel {
-  background-color: #0f172a;
-  border-left: 1px solid #1e293b;
-  padding: 16px;
+  background: rgba(15, 23, 42, 0.8);
+  backdrop-filter: blur(20px);
+  border-left: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 24px;
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  box-shadow: -10px 0 30px rgba(0, 0, 0, 0.5);
+  z-index: 10;
 }
 
 .toolSection {
@@ -71,6 +80,9 @@
   text-transform: uppercase;
   margin-bottom: 8px;
   letter-spacing: 0.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .toolGrid {
@@ -82,27 +94,35 @@
 .toolBtn {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px;
-  background: #1e293b;
-  border-radius: 6px;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px;
+  background: rgba(30, 41, 59, 0.5);
+  border-radius: 12px;
   font-size: 11px;
   color: #94a3b8;
   cursor: pointer;
-  transition: all 0.2s;
-  border: 1px solid transparent;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .toolBtn:hover {
-  background: #334155;
+  background: rgba(51, 65, 85, 0.8);
   color: #fff;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  border-color: rgba(56, 189, 248, 0.3);
 }
 
 .toolBtn.active {
-  background: rgba(56, 189, 248, 0.1);
+  background: rgba(56, 189, 248, 0.15);
   color: #38bdf8;
   border-color: #38bdf8;
-  font-weight: 600;
+  font-weight: 700;
+  box-shadow: 0 0 15px rgba(56, 189, 248, 0.2);
 }
 
 .node {
@@ -170,14 +190,34 @@
 
 .aiBtn {
   width: 100%;
-  padding: 12px;
-  background: linear-gradient(135deg, #38bdf8, #8b5cf6);
+  padding: 14px;
+  background: linear-gradient(135deg, #0ea5e9, #6366f1);
   color: #fff;
-  border-radius: 6px;
+  border-radius: 12px;
   font-weight: 800;
   font-size: 11px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.3s;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.aiBtn:hover {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 10px 25px rgba(14, 165, 233, 0.4);
+  filter: brightness(1.1);
+}
+
+.commitBtn {
+  background: linear-gradient(135deg, #10b981, #059669);
+  box-shadow: 0 4px 15px rgba(16, 185, 129, 0.2);
+}
+
+.commitBtn:hover {
+  box-shadow: 0 10px 25px rgba(16, 185, 129, 0.4);
 }
