@@ -30,7 +30,8 @@ app.post('/api/scan-blueprint', async (req, res) => {
         const { image, prompt } = req.body;
         
         const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+        // FORCE v1 Production API to avoid v1beta 404 errors
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }, { apiVersion: 'v1' });
         
         let result;
         if (image) {
