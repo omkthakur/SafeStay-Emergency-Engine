@@ -7,18 +7,27 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+console.log('🚀 Starting SafeStay Secure Server...');
+
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-// The Gemini Key is pulled from the SERVER environment, never sent to the browser
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+// Health check endpoint for Cloud Run
+app.get('/health', (req, res) => {
+    res.status(200).send('OK');
+});
 
 app.post('/api/scan-blueprint', async (req, res) => {
     try {
-        const { image, prompt } = req.body;
-        if (!image || !prompt) return res.status(400).json({ error: 'Missing data' });
+        const apiKey = process.env.GEMINI_API_KEY;
+        if (!apiKey) {
+            console.error('❌ Missing GEMINI_API_KEY on server');
+            return res.status(500).json({ error: 'Server Configuration Error' });
+        }
 
+        const { image, prompt } = req.body;
+        const genAI = new GoogleGenerativeAI(apiKey);
         const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
         
         const result = await model.generateContent([
@@ -34,19 +43,16 @@ app.post('/api/scan-blueprint', async (req, res) => {
     }
 });
 
-// Health check for Cloud Run
-app.get('/health', (req, res) => res.send('OK'));
+// Static files
+const distPath = path.join(__dirname, 'dist');
+console.log('📂 Serving static files from:', distPath);
+app.use(express.static(distPath));
 
-// Serve the React frontend from the 'dist' folder
-app.use(express.static(path.join(__dirname, 'dist')));
-
-// Handle React routing (SPA)
 app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+    res.sendFile(path.join(distPath, 'index.html'));
 });
 
 const PORT = process.env.PORT || 8080;
-// CRITICAL: Must listen on 0.0.0.0 for Cloud Run
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🛡️ Secure SafeStay Server running on 0.0.0.0:${PORT}`);
+    console.log(`✅ Server successfully listening on 0.0.0.0:${PORT}`);
 });
