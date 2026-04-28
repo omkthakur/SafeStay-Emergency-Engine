@@ -27,7 +27,7 @@ RUN echo 'server { \
     } \
 }' > /etc/nginx/conf.d/default.conf
 
-# Expose port (Cloud Run uses 80 by default or $PORT)
-EXPOSE 80
+# Expose port (Cloud Run uses 8080 by default)
+EXPOSE 8080
 
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["/bin/sh", "-c", "sed -i 's/listen 80;/listen '\"${PORT:-8080}\"';/g' /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]
