@@ -37,7 +37,6 @@ import {
   RefreshCcw
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import styles from './AdminPanel.module.css';
 import { useEmergencyEngine } from '../../context/EmergencyContext';
 import type { NodeType, MapWall, MapNode, MapZone } from '../../context/EmergencyContext';
@@ -205,16 +204,6 @@ export const AdminPanel: React.FC = () => {
     }
   };
 
-  const fileToGenerativePart = async (file: File) => {
-    const base64EncodedDataPromise = new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
-      reader.readAsDataURL(file);
-    });
-    return {
-      inlineData: { data: await base64EncodedDataPromise as string, mimeType: file.type },
-    } as any;
-  };
 
   const handleBlueprintUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -223,53 +212,44 @@ export const AdminPanel: React.FC = () => {
         setIsAiScanning(true);
         
         try {
-            const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY);
-            const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-            const imagePart = await fileToGenerativePart(file);
-            
+            const base64Image = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+                reader.readAsDataURL(file);
+            });
+
             const prompt = `Analyze this floorplan. You need to map out the architectural geometry.
-Return a JSON object EXACTLY matching this structure, with no markdown, just the JSON string:
+Return a JSON object EXACTLY matching this structure:
 {
-  "nodes": [
-    {"id": "n1", "type": "ROOM", "x": 500, "y": 600, "label": "Office 1"},
-    {"id": "n2", "type": "CORRIDOR", "x": 500, "y": 800, "label": "Main Hallway"},
-    {"id": "n3", "type": "FIRE_EXIT", "x": 100, "y": 100}
-  ],
-  "zones": [
-    {"id": "z1", "type": "ROOM_ZONE", "x": 400, "y": 500, "w": 200, "h": 200, "label": "Office Area"}
-  ],
-  "links": [
-    {"source": "n1", "target": "n2"}
-  ],
+  "nodes": [{"id": "n1", "type": "ROOM", "x": 500, "y": 600, "label": "Office 1"}],
+  "zones": [{"id": "z1", "type": "ROOM_ZONE", "x": 400, "y": 500, "w": 200, "h": 200, "label": "Office Area"}],
+  "links": [{"source": "n1", "target": "n2"}],
   "walls": []
 }
+Rules: Coordinate system 0-3000. Identify rooms, exits, and paths.`;
 
-Rules:
-1. Coordinate system is 0-3000 for x and y. Estimate locations proportionally based on the image size.
-2. Identify AT LEAST 8 ROOMs, 2 FIRE_EXITs, and 5 CORRIDORs to make the map comprehensive.
-3. Identify major ROOM_ZONEs that encapsulate the rooms.
-4. You MUST connect the nodes! Generate 'links' between adjacent rooms and corridors to form a walkable path network. Ensure all nodes are connected.
-5. DO NOT use the exact coordinates from the example above. Use your visual analysis of the image.
-6. Only return valid JSON. Do not wrap in markdown backticks.`;
+            const response = await fetch('/api/scan-blueprint', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ image: base64Image, prompt })
+            });
 
-            const result = await model.generateContent([prompt, imagePart]);
-            const responseText = result.response.text().trim().replace(/```json/gi, '').replace(/```/g, '');
+            if (!response.ok) throw new Error('AI Proxy Error');
+            
+            const data = await response.json();
+            const responseText = data.text.trim().replace(/```json/gi, '').replace(/```/g, '');
             const aiData = JSON.parse(responseText);
             
-            const aiNodes = aiData.nodes || [];
-            const aiZones = aiData.zones || [];
-            const aiLinks = aiData.links || [];
-            
             setAiMapData({
-                nodes: aiNodes,
-                zones: aiZones,
+                nodes: aiData.nodes || [],
+                zones: aiData.zones || [],
                 walls: aiData.walls || [],
-                links: aiLinks
+                links: aiData.links || []
             });
             setMapLayer('AI');
         } catch (err) {
             console.error("Gemini AI Mapping Failed:", err);
-            alert("AI Mapping failed. Please ensure your API key is correct and valid.");
+            alert("AI Analysis failed. Please try manual drafting.");
         } finally {
             setIsAiScanning(false);
         }
@@ -287,9 +267,6 @@ Rules:
     setAiSuggestions(['Initializing Gemini Safety Assessment...']);
     
     try {
-        const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-        
         const mapPayload = {
             nodes: activeMapData.nodes.map(n => ({ id: n.id, type: n.type, label: n.label })),
             zones: activeMapData.zones.map(z => ({ id: z.id, type: z.type, label: z.label })),
@@ -297,33 +274,26 @@ Rules:
         };
 
         const prompt = `You are a Life Safety Engineer auditing an emergency evacuation map.
-Analyze the following map topology (nodes and links).
-Look for:
-1. Rooms or high-density zones (like ROOM_ZONE) that lack direct links to FIRE_EXITs or corridors.
-2. Areas missing safety equipment (EXTINGUISHER, CCTV).
-3. Critical single-points of failure (bottleneck nodes that handle too much traffic).
+Analyze this map: ${JSON.stringify(mapPayload)}
+Return a JSON object with "bottlenecks" (node IDs) and "suggestions" (strings).`;
 
-Return ONLY a valid JSON object matching this structure (no markdown blocks, just raw JSON):
-{
-  "bottlenecks": ["nodeId1", "nodeId2"],
-  "suggestions": [
-    "Add an extinguisher near node X",
-    "Node Y is isolated from the main corridor"
-  ]
-}
+        const response = await fetch('/api/scan-blueprint', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt })
+        });
 
-Map Data:
-${JSON.stringify(mapPayload)}`;
-
-        const result = await model.generateContent(prompt);
-        const responseText = result.response.text().trim().replace(/```json/gi, '').replace(/```/g, '');
+        if (!response.ok) throw new Error('AI Proxy Error');
+        
+        const data = await response.json();
+        const responseText = data.text.trim().replace(/```json/gi, '').replace(/```/g, '');
         const aiData = JSON.parse(responseText);
         
         setBottlenecks(aiData.bottlenecks || []);
         setAiSuggestions(aiData.suggestions || ["Audit complete: No severe issues found."]);
     } catch (err) {
         console.error("AI Audit failed:", err);
-        setAiSuggestions(["AI Audit failed. Ensure API key is configured properly."]);
+        setAiSuggestions(["AI Audit system currently offline. Please review manually."]);
     } finally {
         setIsAuditing(false);
     }
