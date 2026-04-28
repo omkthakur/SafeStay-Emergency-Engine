@@ -234,10 +234,7 @@ Rules: Coordinate system 0-3000. Identify rooms, exits, and paths.`;
                 body: JSON.stringify({ image: base64Image, prompt })
             });
 
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.details || 'AI Proxy Error');
-            }
+            if (!response.ok) throw new Error('AI Proxy Error');
             
             const data = await response.json();
             const responseText = data.text.trim().replace(/```json/gi, '').replace(/```/g, '');
@@ -286,10 +283,7 @@ Return a JSON object with "bottlenecks" (node IDs) and "suggestions" (strings).`
             body: JSON.stringify({ prompt })
         });
 
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.details || 'AI Proxy Error');
-        }
+        if (!response.ok) throw new Error('AI Proxy Error');
         
         const data = await response.json();
         const responseText = data.text.trim().replace(/```json/gi, '').replace(/```/g, '');

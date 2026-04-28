@@ -395,17 +395,25 @@ export const EmergencyProvider: React.FC<{children: React.ReactNode}> = ({ child
     return () => unsub();
   }, [cloudId]);
 
-  const saveToDisk = async (fullData: any) => {
+  const saveToDisk = async (dataForCloud: any) => {
     try {
       const now = Date.now();
       localPushTimestamp.current = now;
       
+      // CRITICAL: Must wrap in 'state' to match onSnapshot listener
       const payload = {
-        ...fullData,
+        state: {
+            floors: state.floors,
+            activeFloorId: state.activeFloorId,
+            guestDB: state.guestDB,
+            sosLogs: state.sosLogs,
+            pendingIncident: state.pendingIncident
+        },
         engineState,
         incidentType,
         hazardZones,
         instruction,
+        safeRoute,
         timestamp: now
       };
 
@@ -424,31 +432,10 @@ export const EmergencyProvider: React.FC<{children: React.ReactNode}> = ({ child
           return;
         }
 
-        const fullPayload = {
-            state,
-            engineState,
-            incidentType,
-            hazardZones,
-            instruction,
-            safeRoute,
-            timestamp: Date.now()
-        };
-
         localStorage.setItem('SAFESTAY_PERSISTENT_DATA', JSON.stringify(state));
         
-        if (syncStatus === 'IDLE' || syncStatus === 'SUCCESS') {
-          localPushTimestamp.current = fullPayload.timestamp;
-          localStorage.setItem(`CLOUD_SYNC_${cloudId}`, JSON.stringify(fullPayload));
-        }
-
-        const activeFloor = state.floors.find(f => f.id === state.activeFloorId) || state.floors[0];
-        const diskData = {
-          mapConfig: activeFloor.config,
-          guests: state.guestDB,
-          logs: state.sosLogs,
-          pendingIncident: state.pendingIncident
-        };
-        saveToDisk(diskData);
+        // Push the entire current state to Cloud
+        saveToDisk({});
 
     }, 100); 
 

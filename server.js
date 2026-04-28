@@ -23,26 +23,32 @@ app.post('/api/scan-blueprint', async (req, res) => {
         const rawKey = process.env.GEMINI_API_KEY;
         if (!rawKey) {
             console.error('❌ Missing GEMINI_API_KEY on server');
-            return res.status(500).json({ error: 'Server Configuration Error' });
+            return res.status(500).json({ error: 'Server configuration error: Missing API Key' });
         }
         
-        // Remove any accidental newlines or spaces from the key (e.g. \n)
         const apiKey = rawKey.trim();
-
         const { image, prompt } = req.body;
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
         
-        const result = await model.generateContent([
-            prompt,
-            { inlineData: { data: image, mimeType: "image/png" } }
-        ]);
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        
+        let result;
+        if (image) {
+            // Blueprint scan with image
+            result = await model.generateContent([
+                prompt,
+                { inlineData: { data: image, mimeType: "image/png" } }
+            ]);
+        } else {
+            // Text-only safety audit
+            result = await model.generateContent(prompt);
+        }
 
         const response = await result.response;
         res.json({ text: response.text() });
     } catch (error) {
-        console.error('AI Proxy Error:', error);
-        res.status(500).json({ error: 'AI Processing Failed' });
+        console.error('AI Proxy Error Details:', error);
+        res.status(500).json({ error: error.message || 'AI processing failed' });
     }
 });
 
