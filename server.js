@@ -34,6 +34,9 @@ app.post('/api/scan-blueprint', async (req, res) => {
     }
 });
 
+// Health check for Cloud Run
+app.get('/health', (req, res) => res.send('OK'));
+
 // Serve the React frontend from the 'dist' folder
 app.use(express.static(path.join(__dirname, 'dist')));
 
@@ -43,6 +46,7 @@ app.get('*', (req, res) => {
 });
 
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => {
-    console.log(`🛡️ Secure SafeStay Server running on port ${PORT}`);
+// CRITICAL: Must listen on 0.0.0.0 for Cloud Run
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🛡️ Secure SafeStay Server running on 0.0.0.0:${PORT}`);
 });
