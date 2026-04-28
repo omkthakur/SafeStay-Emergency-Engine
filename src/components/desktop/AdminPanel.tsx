@@ -218,15 +218,15 @@ export const AdminPanel: React.FC = () => {
                 reader.readAsDataURL(file);
             });
 
-            const prompt = `Analyze this floorplan. You need to map out the architectural geometry.
-Return a JSON object EXACTLY matching this structure:
+            const prompt = `Analyze this floorplan image. 
+Return ONLY a raw JSON object (NO conversational text, NO preamble) matching this exact structure:
 {
   "nodes": [{"id": "n1", "type": "ROOM", "x": 500, "y": 600, "label": "Office 1"}],
   "zones": [{"id": "z1", "type": "ROOM_ZONE", "x": 400, "y": 500, "w": 200, "h": 200, "label": "Office Area"}],
   "links": [{"source": "n1", "target": "n2"}],
   "walls": []
 }
-Rules: Coordinate system 0-3000. Identify rooms, exits, and paths.`;
+Coordinate system: 0-3000. Identify rooms, exits, and logical paths.`;
 
             const response = await fetch('/api/scan-blueprint', {
                 method: 'POST',
@@ -240,8 +240,13 @@ Rules: Coordinate system 0-3000. Identify rooms, exits, and paths.`;
             }
             
             const data = await response.json();
-            const responseText = data.text.trim().replace(/```json/gi, '').replace(/```/g, '');
-            const aiData = JSON.parse(responseText);
+            
+            // Robust JSON extraction: Find the first { and last } to ignore any AI chatter
+            const rawText = data.text;
+            const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) throw new Error('AI failed to generate valid map data');
+            
+            const aiData = JSON.parse(jsonMatch[0]);
             
             setAiMapData({
                 nodes: aiData.nodes || [],
@@ -277,8 +282,12 @@ Rules: Coordinate system 0-3000. Identify rooms, exits, and paths.`;
         };
 
         const prompt = `You are a Life Safety Engineer auditing an emergency evacuation map.
-Analyze this map: ${JSON.stringify(mapPayload)}
-Return a JSON object with "bottlenecks" (node IDs) and "suggestions" (strings).`;
+Analyze this map data: ${JSON.stringify(mapPayload)}
+Return ONLY a raw JSON object (NO conversational text) with this structure:
+{
+  "bottlenecks": ["nodeId1", "nodeId2"],
+  "suggestions": ["suggestion string 1", "suggestion string 2"]
+}`;
 
         const response = await fetch('/api/scan-blueprint', {
             method: 'POST',
@@ -292,8 +301,13 @@ Return a JSON object with "bottlenecks" (node IDs) and "suggestions" (strings).`
         }
         
         const data = await response.json();
-        const responseText = data.text.trim().replace(/```json/gi, '').replace(/```/g, '');
-        const aiData = JSON.parse(responseText);
+        
+        // Robust JSON extraction
+        const rawText = data.text;
+        const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) throw new Error('AI failed to generate audit data');
+        
+        const aiData = JSON.parse(jsonMatch[0]);
         
         setBottlenecks(aiData.bottlenecks || []);
         setAiSuggestions(aiData.suggestions || ["Audit complete: No severe issues found."]);

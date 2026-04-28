@@ -29,8 +29,8 @@ app.post('/api/scan-blueprint', async (req, res) => {
         console.log(`🔑 Using API Key starting with: ${apiKey.substring(0, 4)}...`);
         const { image, prompt } = req.body;
         
-        // Using the user's confirmed working model name
-        const modelName = 'gemini-2.5-flash';
+        // Use the high-capacity production model
+        const modelName = 'gemini-1.5-flash';
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
         
         const payload = {
