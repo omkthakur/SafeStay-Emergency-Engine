@@ -28,8 +28,10 @@ app.post('/api/scan-blueprint', async (req, res) => {
         const apiKey = rawKey.trim();
         const { image, prompt } = req.body;
         
-        // Use Native Fetch to talk to Google Directly (Bypasses SDK 404 issues)
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+        // Use the most universal model name 'gemini-pro' or 'gemini-pro-vision'
+        // Note: For image scanning, we use 'gemini-pro-vision'
+        const modelName = image ? 'gemini-pro-vision' : 'gemini-pro';
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
         
         const payload = {
             contents: [{
