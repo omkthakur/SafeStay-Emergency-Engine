@@ -33,10 +33,17 @@ app.post('/api/scan-blueprint', async (req, res) => {
         const genAI = new GoogleGenerativeAI(apiKey);
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
         
-        const result = await model.generateContent([
-            prompt,
-            { inlineData: { data: image, mimeType: "image/png" } }
-        ]);
+        let result;
+        if (image) {
+            // Blueprint Upload Mode (Image + Prompt)
+            result = await model.generateContent([
+                prompt,
+                { inlineData: { data: image, mimeType: "image/png" } }
+            ]);
+        } else {
+            // Safety Audit Mode (Prompt Only)
+            result = await model.generateContent(prompt);
+        }
 
         const response = await result.response;
         res.json({ text: response.text() });
