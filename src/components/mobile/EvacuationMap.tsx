@@ -155,7 +155,7 @@ export const EvacuationMap: React.FC = () => {
             const s = mapConfig.nodes.find(n => n.id === link.source);
             const t = mapConfig.nodes.find(n => n.id === link.target);
             if (!s || !t) return null;
-            return <line key={i} x1={s?.x} y1={s?.y} x2={t?.x} y2={t?.y} stroke="rgba(255,255,255,0.05)" strokeWidth="15" strokeLinecap="round" />;
+            return <line key={i} x1={s.x} y1={s.y} x2={t.x} y2={t.y} stroke="rgba(255,255,255,0.05)" strokeWidth="15" strokeLinecap="round" />;
           })}
 
           {/* Danger Zones (Dynamic) */}
