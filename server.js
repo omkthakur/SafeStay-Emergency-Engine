@@ -49,7 +49,11 @@ app.post('/api/scan-blueprint', async (req, res) => {
         res.json({ text: response.text() });
     } catch (error) {
         console.error('AI Proxy Error:', error);
-        res.status(500).json({ error: 'AI Processing Failed' });
+        // Temporarily send the actual error message to the frontend for debugging
+        res.status(500).json({ 
+            error: 'AI Processing Failed', 
+            details: error instanceof Error ? error.message : String(error) 
+        });
     }
 });
 
