@@ -1,13 +1,12 @@
 import express from 'express';
 import cors from 'cors';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-console.log('🚀 Starting SafeStay Secure Server...');
+console.log('🚀 Starting SafeStay Secure Server (Native Fetch Mode)...');
 
 const app = express();
 app.use(cors());
@@ -29,24 +28,37 @@ app.post('/api/scan-blueprint', async (req, res) => {
         const apiKey = rawKey.trim();
         const { image, prompt } = req.body;
         
-        const genAI = new GoogleGenerativeAI(apiKey);
-        // FORCE v1 Production API to avoid v1beta 404 errors
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }, { apiVersion: 'v1' });
+        // Use Native Fetch to talk to Google Directly (Bypasses SDK 404 issues)
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
         
-        let result;
-        if (image) {
-            // Blueprint scan with image
-            result = await model.generateContent([
-                prompt,
-                { inlineData: { data: image, mimeType: "image/png" } }
-            ]);
-        } else {
-            // Text-only safety audit
-            result = await model.generateContent(prompt);
+        const payload = {
+            contents: [{
+                parts: [
+                    { text: prompt },
+                    ...(image ? [{ inline_data: { mime_type: "image/png", data: image } }] : [])
+                ]
+            }]
+        };
+
+        console.log('📡 Sending request to Gemini via Native Fetch...');
+        const googleResponse = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await googleResponse.json();
+
+        if (!googleResponse.ok) {
+            console.error('❌ Google API Error:', data);
+            return res.status(googleResponse.status).json({ 
+                error: data.error?.message || 'Google API refused request' 
+            });
         }
 
-        const response = await result.response;
-        res.json({ text: response.text() });
+        const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || "No response from AI";
+        res.json({ text: aiText });
+
     } catch (error) {
         console.error('AI Proxy Error Details:', error);
         res.status(500).json({ error: error.message || 'AI processing failed' });
