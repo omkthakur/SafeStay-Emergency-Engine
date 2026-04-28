@@ -20,15 +20,18 @@ app.get('/health', (req, res) => {
 
 app.post('/api/scan-blueprint', async (req, res) => {
     try {
-        const apiKey = process.env.GEMINI_API_KEY;
-        if (!apiKey) {
+        const rawKey = process.env.GEMINI_API_KEY;
+        if (!rawKey) {
             console.error('❌ Missing GEMINI_API_KEY on server');
             return res.status(500).json({ error: 'Server Configuration Error' });
         }
+        
+        // Remove any accidental newlines or spaces from the key (e.g. \n)
+        const apiKey = rawKey.trim();
 
         const { image, prompt } = req.body;
         const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
         
         const result = await model.generateContent([
             prompt,
