@@ -401,14 +401,17 @@ export const EmergencyProvider: React.FC<{children: React.ReactNode}> = ({ child
       localPushTimestamp.current = now;
       
       // CRITICAL: Must wrap in 'state' to match onSnapshot listener
+      // and sanitize undefined values for Firestore
+      const sanitizedState = JSON.parse(JSON.stringify({
+          floors: state.floors,
+          activeFloorId: state.activeFloorId,
+          guestDB: state.guestDB,
+          sosLogs: state.sosLogs,
+          pendingIncident: state.pendingIncident
+      }));
+
       const payload = {
-        state: {
-            floors: state.floors,
-            activeFloorId: state.activeFloorId,
-            guestDB: state.guestDB,
-            sosLogs: state.sosLogs,
-            pendingIncident: state.pendingIncident
-        },
+        state: sanitizedState,
         engineState,
         incidentType,
         hazardZones,
