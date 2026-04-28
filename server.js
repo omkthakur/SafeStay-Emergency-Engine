@@ -26,11 +26,9 @@ app.post('/api/scan-blueprint', async (req, res) => {
         }
         
         const apiKey = rawKey.trim();
-        console.log(`🔑 Using API Key starting with: ${apiKey.substring(0, 4)}...`);
         const { image, prompt } = req.body;
         
-        // Use the high-capacity production model
-        const modelName = 'gemini-1.5-flash';
+        const modelName = 'gemini-2.5-flash';
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
         
         const payload = {
@@ -42,14 +40,29 @@ app.post('/api/scan-blueprint', async (req, res) => {
             }]
         };
 
-        console.log('📡 Sending request to Gemini via Native Fetch...');
-        const googleResponse = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
+        // --- RETRY LOGIC FOR HIGH DEMAND (503) ---
+        let attempts = 0;
+        let googleResponse;
+        let data;
 
-        const data = await googleResponse.json();
+        while (attempts < 2) {
+            console.log(`📡 Sending request to Gemini (Attempt ${attempts + 1})...`);
+            googleResponse = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            data = await googleResponse.json();
+
+            if (googleResponse.status === 503) {
+                console.warn('⚠️ Model busy (503). Retrying in 1.5s...');
+                attempts++;
+                await new Promise(r => setTimeout(r, 1500));
+                continue;
+            }
+            break;
+        }
 
         if (!googleResponse.ok) {
             console.error('❌ Google API Error:', data);
